@@ -20,7 +20,7 @@ def close_cookie_banner(driver):
 
     buttons = [
         el
-        for el in driver.find_elements(By.CSS_SELECTOR, ".MuiSnackbar-root button")
+        for el in driver.find_elements(By.CSS_SELECTOR, "button")
         if el.text == "ACCEPT"
     ]
     if not len(buttons):
@@ -38,24 +38,11 @@ def get_webdriver(headless=False):
 
     # Create the options
     options = webdriver.ChromeOptions()
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
     options.add_argument("start-maximized")
     if headless:
         options.add_argument("--headless")
 
-    driver = webdriver.Chrome(ChromeDriverManager().install(), options=options)
-    # stealth(
-    #     driver,
-    #     languages=["en-US", "en"],
-    #     vendor="Google Inc.",
-    #     platform="Win32",
-    #     webgl_vendor="Intel Inc.",
-    #     renderer="Intel Iris OpenGL Engine",
-    #     fix_hairline=True,
-    # )
-
-    return driver
+    return webdriver.Chrome(ChromeDriverManager().install(), options=options)
 
 
 def get_todays_meals():
@@ -97,25 +84,37 @@ def get_existing_recipes(driver):
     """Get the existing recipes from myfitnesspal."""
 
     @retries(max_attempts=3, wait=2)
-    def get_names_from_page(pg_num):
+    def get_info_from_page(pg_num):
         url = f"https://www.myfitnesspal.com/recipe_parser?page={pg_num}&sort_order=recent"
         driver.get(url)
         close_cookie_banner(driver)
 
+        # Recipe names
         names = [
             el.text
             for el in driver.find_elements(By.CSS_SELECTOR, ".recipe-info .name")
         ]
         if len(names) == 0:
             raise ValueError("Error parsing recipe names.")
-        return names
+
+        urls = [
+            el.get_attribute("href")
+            for el in driver.find_elements(
+                By.CSS_SELECTOR, ".recipe-info .prep-source a"
+            )
+        ]
+
+        return names, urls
 
     pg_num = 1
     names = []
+    urls = []
     while True:
 
         # Get the names
-        names += get_names_from_page(pg_num)
+        _names, _urls = get_info_from_page(pg_num)
+        names += _names
+        urls += _urls
 
         next_button = [
             el
@@ -128,7 +127,7 @@ def get_existing_recipes(driver):
         time.sleep(3)
         pg_num += 1
 
-    return names
+    return names, urls
 
 
 def safe_click(driver, css_selector, timeout=10, javascript=False):
@@ -145,7 +144,6 @@ def safe_click(driver, css_selector, timeout=10, javascript=False):
         driver.execute_script("arguments[0].click();", b)
 
 
-@retries(max_attempts=3, wait=2)
 def manual_recipe_add(driver, r):
     """Manually add a recipe to myfitnesspal."""
 
@@ -168,13 +166,12 @@ def manual_recipe_add(driver, r):
     )
 
     # Match and save
-    safe_click(driver, "input[value='Match Ingredients']", javascript=True)
+    safe_click(driver, "input[value='Match Ingredients']")
     time.sleep(3)
-    b = driver.find_element(By.CSS_SELECTOR, ".save-button")
-    driver.execute_script("arguments[0].click();", b)
+    safe_click(driver, ".static-recipe-header .save-button")
+    time.sleep(3)
 
 
-# @retries(max_attempts=3, wait=2)
 def url_recipe_add(driver, url):
     """Add a recipe from a url to myfitnesspal."""
 
@@ -191,11 +188,10 @@ def url_recipe_add(driver, url):
 
     safe_click(driver, "input.url-submit")
     time.sleep(3)
-    safe_click(driver, "input[value='Match Ingredients']", javascript=True)
+    safe_click(driver, "input[value='Match Ingredients']")
     time.sleep(3)
-
-    b = driver.find_element(By.CSS_SELECTOR, ".save-button")
-    driver.execute_script("arguments[0].click();", b)
+    safe_click(driver, ".static-recipe-header .save-button")
+    time.sleep(3)
 
 
 def sync_from_anylist_to_mfp(headless=True, ignore_existing=False):
@@ -231,13 +227,14 @@ def sync_from_anylist_to_mfp(headless=True, ignore_existing=False):
 
     # Existing recipes
     if not ignore_existing:
-        existing_recipe_names = get_existing_recipes(driver)
+        existing_recipe_names, existing_recipe_urls = get_existing_recipes(driver)
         if len(existing_recipe_names) == 0:
             raise ValueError("No existing recipes found, something bad happened.")
         logger.info(f"Found {len(existing_recipe_names)} existing recipes.")
     else:
         logger.info("Skipping existing recipes check.")
         existing_recipe_names = []
+        existing_recipe_urls = []
 
     # Get today's meals
     today_meal_ids = get_todays_meals()
@@ -250,6 +247,10 @@ def sync_from_anylist_to_mfp(headless=True, ignore_existing=False):
 
         # Skip if it exists
         if recipe["name"] in existing_recipe_names:
+            logger.info(f"Skipping {recipe['name']}: already exists")
+            continue
+
+        if recipe["sourceUrl"] in existing_recipe_urls:
             logger.info(f"Skipping {recipe['name']}: already exists")
             continue
 
