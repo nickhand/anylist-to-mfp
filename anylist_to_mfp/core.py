@@ -257,8 +257,14 @@ def sync_from_anylist_to_mfp(headless=True, ignore_existing=False):
         # Add via url?
         sourceUrl = recipe["sourceUrl"]
         if sourceUrl:
-            logger.info(f"Adding recipe '{recipe['name']}' via URL")
-            url_recipe_add(driver, sourceUrl)
+
+            try:
+                logger.info(f"Adding recipe '{recipe['name']}' via URL")
+                url_recipe_add(driver, sourceUrl)
+            except:
+                logger.info(f"Manually adding recipe '{recipe['name']}'")
+                manual_recipe_add(driver, recipe)
+
         else:  # Manual add
             logger.info(f"Manually adding recipe '{recipe['name']}'")
             manual_recipe_add(driver, recipe)
