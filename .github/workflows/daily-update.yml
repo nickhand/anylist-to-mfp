@@ -1,0 +1,35 @@
+name: Daily Update
+
+on:
+  schedule:
+    - cron: "00 11 * * *" # 11:00 AM UTC
+  workflow_dispatch: {}
+  push:
+    paths:
+      - .github/workflows/daily-update.yml
+
+jobs:
+  daily-update:
+    name: Daily Update
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v2
+        with:
+          python-version: "3.9"
+      - name: Run image
+        uses: abatilo/actions-poetry@v2.0.0
+        with:
+          poetry-version: "1.1.11"
+      - name: Install package
+        run: |-
+          poetry install
+      - name: Sync latest data
+        run: |-
+          poetry run anylist-to-mfp
+        env:
+          MFP_USERNAME: ${{ secrets.MFP_USERNAME }}
+          MFP_PASSWORD: ${{ secrets.MFP_PASSWORD }}
